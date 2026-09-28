@@ -164,3 +164,13 @@ unchanged here per Scope/Out).
 - T1: `faee960` — refactor: split into modules with typed errors
 - T2: `245b888` — feat: clap-based CLI with multi-file extraction
 - T3: `6df945a` — test: add CLI and end-to-end integration tests
+
+## Review
+- RDD assessment on `main..HEAD` (committed-only): medium, review due (`slice_budget_reached`).
+- Consent: granted by user. Lens: review-reliability. Outcome: approved and acknowledged
+  (lineage `review-e8c1df8f542d88c3`).
+- Non-blocking follow-ups: output stem collision in multi-file extract (same stem -> FFmpeg overwrite
+  prompt fails), no overwrite handling for pre-existing outputs, partial-failure/summary contract not
+  asserted by tests, empty-batch exit code untested, FFmpeg spawn error masked as generic failure.
+- Delivery: ~950 authored changed lines (excl. Cargo.lock) exceeds the ~400 budget; push/PR is a
+  user decision.
