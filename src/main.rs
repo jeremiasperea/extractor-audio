@@ -1,7 +1,10 @@
 use std::env;
-use std::process::Command;
 use std::path::Path;
-use std::fs;
+
+use clap::ValueEnum;
+use extractor_audio::error::ExtractError;
+use extractor_audio::extractor;
+use extractor_audio::format::AudioFormat;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -21,8 +24,11 @@ fn main() {
                 return;
             }
             let video_path = &args[2];
-            let output_format = if args.len() >= 4 { &args[3] } else { "mp3" };
-            extract_audio(video_path, output_format);
+            let format_arg = if args.len() >= 4 { &args[3] } else { "mp3" };
+            match parse_format(format_arg) {
+                Ok(format) => run_extract(video_path, format),
+                Err(message) => println!("{}", message),
+            }
         }
         "batch" => {
             if args.len() < 3 {
@@ -31,8 +37,11 @@ fn main() {
                 return;
             }
             let directory = &args[2];
-            let output_format = if args.len() >= 4 { &args[3] } else { "mp3" };
-            batch_extract(directory, output_format);
+            let format_arg = if args.len() >= 4 { &args[3] } else { "mp3" };
+            match parse_format(format_arg) {
+                Ok(format) => run_batch(directory, format),
+                Err(message) => println!("{}", message),
+            }
         }
         "help" | "--help" | "-h" => {
             print_usage();
@@ -42,6 +51,11 @@ fn main() {
             print_usage();
         }
     }
+}
+
+fn parse_format(format_arg: &str) -> Result<AudioFormat, String> {
+    AudioFormat::from_str(format_arg, true)
+        .map_err(|_| format!("Formato no soportado: {}", format_arg))
 }
 
 fn print_usage() {
@@ -62,137 +76,43 @@ fn print_usage() {
     println!("  audio_extractor batch ./videos mp3");
 }
 
-fn extract_audio(video_path: &str, format: &str) {
-    // Verificar que el archivo existe
-    if !Path::new(video_path).exists() {
-        println!("Error: El archivo '{}' no existe", video_path);
-        return;
-    }
-
-    // Verificar que FFmpeg está instalado
-    if !check_ffmpeg() {
-        println!("Error: FFmpeg no está instalado o no se encuentra en el PATH");
-        println!("Instala FFmpeg desde: https://ffmpeg.org/download.html");
-        return;
-    }
-
-    // Generar nombre del archivo de salida
-    let video_path_obj = Path::new(video_path);
-    let output_name = match video_path_obj.file_stem() {
-        Some(name) => format!("{}.{}", name.to_string_lossy(), format),
-        None => {
-            println!("Error: No se pudo determinar el nombre del archivo");
-            return;
-        }
-    };
-
+fn run_extract(video_path: &str, format: AudioFormat) {
     println!("Extrayendo audio de: {}", video_path);
-    println!("Formato de salida: {}", format);
-    println!("Archivo de destino: {}", output_name);
+    println!("Formato de salida: {}", format.extension());
 
-    // Configurar parámetros según el formato
-    let codec = match format {
-        "mp3" => "libmp3lame",
-        "wav" => "pcm_s16le",
-        "aac" => "aac",
-        "flac" => "flac",
-        "ogg" => "libvorbis",
-        "m4a" => "aac",
-        _ => {
-            println!("Formato no soportado: {}", format);
+    match extractor::extract_audio(Path::new(video_path), format) {
+        Ok(output) => {
+            println!("Extraccion completada exitosamente: {}", output.display());
+        }
+        Err(err) => report_error(&err),
+    }
+}
+
+fn run_batch(directory: &str, format: AudioFormat) {
+    let videos = match extractor::find_videos(Path::new(directory)) {
+        Ok(videos) => videos,
+        Err(err) => {
+            report_error(&err);
             return;
         }
     };
 
-    // Ejecutar FFmpeg
-    let mut command = Command::new("ffmpeg");
-    command.arg("-i")
-           .arg(video_path)
-           .arg("-vn")  // Sin video
-           .arg("-acodec")
-           .arg(codec);
-
-    // Agregar calidad según el formato
-    match format {
-        "mp3" => {
-            command.arg("-b:a").arg("192k");
-        }
-        "aac" | "m4a" => {
-            command.arg("-b:a").arg("192k");
-        }
-        "ogg" => {
-            command.arg("-q:a").arg("5");
-        }
-        _ => {}
-    }
-
-    command.arg(&output_name);
-
-    // Ejecutar el comando
-    match command.output() {
-        Ok(output) => {
-            if output.status.success() {
-                println!("Extraccion completada exitosamente: {}", output_name);
-            } else {
-                println!("Error durante la extraccion:");
-                println!("{}", String::from_utf8_lossy(&output.stderr));
-            }
-        }
-        Err(e) => {
-            println!("Error al ejecutar FFmpeg: {}", e);
-        }
-    }
-}
-
-fn batch_extract(directory: &str, format: &str) {
-    let dir_path = Path::new(directory);
-
-    if !dir_path.exists() {
-        println!("Error: El directorio '{}' no existe", directory);
+    if videos.is_empty() {
+        println!("No se encontraron archivos de video en el directorio");
         return;
     }
 
-    if !dir_path.is_dir() {
-        println!("Error: '{}' no es un directorio", directory);
-        return;
+    for (index, video) in videos.iter().enumerate() {
+        println!("\n[{}/{}] Procesando archivo:", index + 1, videos.len());
+        run_extract(&video.display().to_string(), format);
     }
 
-    // Extensiones de video comunes
-    let video_extensions = vec!["mp4", "avi", "mkv", "mov", "flv", "wmv", "webm", "m4v"];
-
-    match fs::read_dir(dir_path) {
-        Ok(entries) => {
-            let mut count = 0;
-            for entry in entries {
-                if let Ok(entry) = entry {
-                    let path = entry.path();
-                    if path.is_file() {
-                        if let Some(ext) = path.extension() {
-                            let ext_str = ext.to_string_lossy().to_lowercase();
-                            if video_extensions.contains(&ext_str.as_str()) {
-                                count += 1;
-                                println!("\n[{}/...] Procesando archivo:", count);
-                                extract_audio(path.to_str().unwrap(), format);
-                            }
-                        }
-                    }
-                }
-            }
-            if count == 0 {
-                println!("No se encontraron archivos de video en el directorio");
-            } else {
-                println!("\nProceso completado. {} archivo(s) procesado(s)", count);
-            }
-        }
-        Err(e) => {
-            println!("Error al leer el directorio: {}", e);
-        }
-    }
+    println!(
+        "\nProceso completado. {} archivo(s) procesado(s)",
+        videos.len()
+    );
 }
 
-fn check_ffmpeg() -> bool {
-    Command::new("ffmpeg")
-        .arg("-version")
-        .output()
-        .is_ok()
+fn report_error(err: &ExtractError) {
+    println!("Error: {}", err);
 }
