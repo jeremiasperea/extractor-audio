@@ -29,35 +29,42 @@ Descarga desde https://ffmpeg.org/download.html y añade al PATH
 cargo build --release
 ```
 
-El ejecutable se generará en `target/release/audio_extractor`
+El ejecutable se generará en `target/release/extractor_audio`
 
 ## Uso
 
-### Extraer audio de un solo video
+> **Nota:** el formato ahora se indica con el flag `-f`/`--format` (antes era un argumento
+> posicional). El binario se llama `extractor_audio`.
+
+### Extraer audio de uno o más videos
 
 ```bash
 # Con formato MP3 (predeterminado)
-./target/release/audio_extractor extract video.mp4
+./target/release/extractor_audio extract video.mp4
 
 # Especificando formato
-./target/release/audio_extractor extract video.mp4 wav
-./target/release/audio_extractor extract video.mkv flac
+./target/release/extractor_audio extract video.mkv -f wav
+./target/release/extractor_audio extract video.mkv -f flac
+
+# Múltiples archivos en una sola invocación
+./target/release/extractor_audio extract video1.mp4 video2.mkv video3.mov -f wav
 ```
 
 ### Extracción por lotes (directorio completo)
 
 ```bash
 # Procesar todos los videos en un directorio
-./target/release/audio_extractor batch ./mis_videos
+./target/release/extractor_audio batch ./mis_videos
 
 # Con formato específico
-./target/release/audio_extractor batch ./mis_videos wav
+./target/release/extractor_audio batch ./mis_videos -f wav
 ```
 
 ### Ver ayuda
 
 ```bash
-./target/release/audio_extractor help
+./target/release/extractor_audio --help
+./target/release/extractor_audio extract --help
 ```
 
 ## Formatos soportados
@@ -82,18 +89,21 @@ El ejecutable se generará en `target/release/audio_extractor`
 
 ```bash
 # Extraer audio MP3 de alta calidad
-./target/release/audio_extractor extract pelicula.mp4
+./target/release/extractor_audio extract pelicula.mp4
 
 # Extraer en formato WAV sin pérdida
-./target/release/audio_extractor extract video.mkv wav
+./target/release/extractor_audio extract video.mkv -f wav
 
 # Procesar todos los videos de una carpeta a FLAC
-./target/release/audio_extractor batch ./descargas flac
+./target/release/extractor_audio batch ./descargas -f flac
 ```
 
 ## Notas
 
-- Los archivos de audio se generan en el mismo directorio que el video fuente
+- Los archivos de audio se generan en el directorio desde el que se ejecuta el programa
+  (directorio de trabajo actual), no necesariamente junto al video de origen
+- Si algún archivo falla durante `extract`/`batch`, el programa continúa con el resto y finaliza
+  con código de salida distinto de cero
 - La calidad predeterminada es 192kbps para formatos con pérdida (MP3, AAC)
 - Los formatos sin pérdida (WAV, FLAC) mantienen la calidad original
 - El programa verifica la existencia de FFmpeg antes de ejecutar
