@@ -174,3 +174,9 @@ unchanged here per Scope/Out).
   asserted by tests, empty-batch exit code untested, FFmpeg spawn error masked as generic failure.
 - Delivery: ~950 authored changed lines (excl. Cargo.lock) exceeds the ~400 budget; push/PR is a
   user decision.
+
+## Delivery
+- Strategy: stacked PRs to main (2 slices, user-requested), `size:exception` requested on both.
+- PR #1 `refactor/robust-cli-01-modules` -> `main`: faee960 (595 authored lines excl. Cargo.lock).
+- PR #2 `refactor/robust-cli-02-cli` -> PR #1 branch: 245b888, 6df945a, 4f1ff6a, 7cad1bd and this
+  commit (454 lines). Retarget to `main` after PR #1 merges.
