@@ -1,0 +1,15 @@
+/target
+
+# Local tooling artifacts
+/graphify-out/
+/.opencode/
+/.atl/
+
+# Editor / OS
+*.swp
+*.swo
+*~
+.DS_Store
+.vscode/
+.idea/
+*.iml
