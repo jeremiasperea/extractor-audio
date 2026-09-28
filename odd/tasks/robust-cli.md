@@ -35,7 +35,7 @@ zero tests.
 - [x] T2 feat: `clap` derive CLI (`extract <videos...> -f`, `batch <dir> -f`), `anyhow` in `main`,
       per-file failure summary, non-zero exit on any failure; README usage update.
       Route: delegated (same writer, multi-file).
-- [ ] T3 test: integration tests in `tests/` — end-to-end extraction on an FFmpeg-generated sample
+- [x] T3 test: integration tests in `tests/` — end-to-end extraction on an FFmpeg-generated sample
       (skipped if FFmpeg is missing) and CLI behavior (help, invalid format, missing file).
       Route: delegated (same writer).
 
@@ -126,9 +126,41 @@ Verification (from repo root):
   - `extractor_audio batch /nonexistent-dir` → prints "El archivo '/nonexistent-dir' no existe",
     exit 1.
 
+### T3 — `test: add CLI and end-to-end integration tests`
+- Added `assert_cmd = "2.0"` and `predicates = "3.1"` to `[dev-dependencies]`.
+- `tests/cli.rs`:
+  - `help_succeeds`: `--help` exits 0 and mentions the binary name.
+  - `invalid_format_fails`: `extract some_video.mp4 -f xyz` exits non-zero (clap rejects the
+    value before touching the filesystem or FFmpeg).
+  - `missing_input_file_fails` / `batch_on_non_directory_fails`: run unconditionally (not gated on
+    FFmpeg) — a missing input or a non-directory `batch` target fails regardless of whether
+    FFmpeg is present, because either the specific check or the up-front `ensure_ffmpeg()` check
+    already reports a non-zero exit.
+  - `extract_produces_non_empty_output_file` / `batch_produces_non_empty_output_file`: end-to-end,
+    each generates a 1-second sample video via FFmpeg's `lavfi` `testsrc`/`sine` sources into a
+    tempdir, runs the binary with `current_dir(tempdir)`, and asserts the expected `.wav` output
+    exists and is non-empty. Both are skipped early (with a printed note) if `ffmpeg` is not on
+    PATH, per task instructions.
+- Kept tests deterministic (fixed synthetic input, no network, no shared state) and fast — the
+  full `tests/cli.rs` suite runs in ~0.15s including two real FFmpeg invocations.
+
+Verification (from repo root):
+- `cargo fmt`: applied, no functional diff (only formatting).
+- `cargo build --all-targets`: OK — `Finished \`dev\` profile [unoptimized + debuginfo] target(s)
+  in 5.53s`.
+- `cargo clippy --all-targets -- -D warnings`: OK — no warnings.
+- `cargo test`: OK — `12 passed` (lib unit tests, unchanged) + `6 passed` (`tests/cli.rs`, new) +
+  `0` doctests; total 18 passed, 0 failed, finished in ~0.15s for the integration binary.
+  FFmpeg was available in this environment, so all 6 CLI tests (including the two end-to-end
+  ones) ran for real rather than being skipped.
+
 ## Next step
-T3.
+All three planned tasks (T1–T3) are complete and verified. Suggested follow-ups, out of this
+feature's scope, for a future change: colored/progress-bar output, Dockerfile, and revisiting
+whether output should default next to the source video vs. the current working directory (kept
+unchanged here per Scope/Out).
 
 ## Commit log
 - T1: `faee960` — refactor: split into modules with typed errors
-- T2: recorded in the T3 commit (see below)
+- T2: `245b888` — feat: clap-based CLI with multi-file extraction
+- T3: recorded after commit (see repo `git log`)
