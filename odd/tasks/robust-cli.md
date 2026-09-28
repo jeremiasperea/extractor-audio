@@ -163,4 +163,4 @@ unchanged here per Scope/Out).
 ## Commit log
 - T1: `faee960` — refactor: split into modules with typed errors
 - T2: `245b888` — feat: clap-based CLI with multi-file extraction
-- T3: recorded after commit (see repo `git log`)
+- T3: `6df945a` — test: add CLI and end-to-end integration tests
