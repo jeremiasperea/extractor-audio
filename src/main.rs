@@ -1,118 +1,110 @@
-use std::env;
-use std::path::Path;
+use std::path::PathBuf;
+use std::process::ExitCode;
 
-use clap::ValueEnum;
+use clap::{Parser, Subcommand};
+
 use extractor_audio::error::ExtractError;
 use extractor_audio::extractor;
 use extractor_audio::format::AudioFormat;
 
-fn main() {
-    let args: Vec<String> = env::args().collect();
+/// Extractor de audio de videos usando FFmpeg.
+#[derive(Parser, Debug)]
+#[command(
+    name = "extractor_audio",
+    version,
+    about = "Extrae el audio de archivos de video usando FFmpeg.",
+    after_help = "EJEMPLOS:\n  extractor_audio extract video.mp4\n  extractor_audio extract video.mkv otro.avi -f wav\n  extractor_audio batch ./videos -f flac"
+)]
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
 
-    if args.len() < 2 {
-        print_usage();
-        return;
+#[derive(Subcommand, Debug)]
+enum Command {
+    /// Extrae audio de uno o más archivos de video
+    Extract {
+        /// Archivo(s) de video de entrada
+        #[arg(required = true)]
+        videos: Vec<PathBuf>,
+
+        /// Formato de audio de salida
+        #[arg(short = 'f', long, value_enum, default_value = "mp3")]
+        format: AudioFormat,
+    },
+    /// Extrae audio de todos los videos encontrados en un directorio
+    Batch {
+        /// Directorio que contiene los videos a procesar
+        directory: PathBuf,
+
+        /// Formato de audio de salida
+        #[arg(short = 'f', long, value_enum, default_value = "mp3")]
+        format: AudioFormat,
+    },
+}
+
+fn main() -> ExitCode {
+    let cli = Cli::parse();
+
+    if let Err(err) = extractor::ensure_ffmpeg() {
+        eprintln!("Error: {}", err);
+        return ExitCode::FAILURE;
     }
 
-    let command = &args[1];
-
-    match command.as_str() {
-        "extract" => {
-            if args.len() < 3 {
-                println!("Error: Debes especificar el archivo de video");
-                print_usage();
-                return;
+    let (ok, failed) = match cli.command {
+        Command::Extract { videos, format } => process_files(&videos, format),
+        Command::Batch { directory, format } => match extractor::find_videos(&directory) {
+            Ok(videos) if videos.is_empty() => {
+                println!("No se encontraron archivos de video en el directorio");
+                return ExitCode::FAILURE;
             }
-            let video_path = &args[2];
-            let format_arg = if args.len() >= 4 { &args[3] } else { "mp3" };
-            match parse_format(format_arg) {
-                Ok(format) => run_extract(video_path, format),
-                Err(message) => println!("{}", message),
+            Ok(videos) => process_files(&videos, format),
+            Err(err) => {
+                eprintln!("Error: {}", err);
+                return ExitCode::FAILURE;
             }
-        }
-        "batch" => {
-            if args.len() < 3 {
-                println!("Error: Debes especificar el directorio");
-                print_usage();
-                return;
-            }
-            let directory = &args[2];
-            let format_arg = if args.len() >= 4 { &args[3] } else { "mp3" };
-            match parse_format(format_arg) {
-                Ok(format) => run_batch(directory, format),
-                Err(message) => println!("{}", message),
-            }
-        }
-        "help" | "--help" | "-h" => {
-            print_usage();
-        }
-        _ => {
-            println!("Comando desconocido: {}", command);
-            print_usage();
-        }
-    }
-}
-
-fn parse_format(format_arg: &str) -> Result<AudioFormat, String> {
-    AudioFormat::from_str(format_arg, true)
-        .map_err(|_| format!("Formato no soportado: {}", format_arg))
-}
-
-fn print_usage() {
-    println!("\nExtractor de Audio de Videos");
-    println!("=============================\n");
-    println!("Uso:");
-    println!("  audio_extractor extract <video> [formato]");
-    println!("  audio_extractor batch <directorio> [formato]\n");
-    println!("Comandos:");
-    println!("  extract    Extrae audio de un solo video");
-    println!("  batch      Extrae audio de todos los videos en un directorio");
-    println!("  help       Muestra esta ayuda\n");
-    println!("Formatos soportados:");
-    println!("  mp3 (predeterminado), wav, aac, flac, ogg, m4a\n");
-    println!("Ejemplos:");
-    println!("  audio_extractor extract video.mp4");
-    println!("  audio_extractor extract video.mkv wav");
-    println!("  audio_extractor batch ./videos mp3");
-}
-
-fn run_extract(video_path: &str, format: AudioFormat) {
-    println!("Extrayendo audio de: {}", video_path);
-    println!("Formato de salida: {}", format.extension());
-
-    match extractor::extract_audio(Path::new(video_path), format) {
-        Ok(output) => {
-            println!("Extraccion completada exitosamente: {}", output.display());
-        }
-        Err(err) => report_error(&err),
-    }
-}
-
-fn run_batch(directory: &str, format: AudioFormat) {
-    let videos = match extractor::find_videos(Path::new(directory)) {
-        Ok(videos) => videos,
-        Err(err) => {
-            report_error(&err);
-            return;
-        }
+        },
     };
 
-    if videos.is_empty() {
-        println!("No se encontraron archivos de video en el directorio");
-        return;
+    println!("\nResumen: {} exitoso(s), {} fallido(s)", ok, failed);
+
+    if failed > 0 {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
     }
+}
+
+/// Procesa cada archivo de video, continuando tras un fallo individual.
+/// Devuelve el número de éxitos y de fallos.
+fn process_files(videos: &[PathBuf], format: AudioFormat) -> (usize, usize) {
+    let total = videos.len();
+    let mut ok = 0usize;
+    let mut failed = 0usize;
 
     for (index, video) in videos.iter().enumerate() {
-        println!("\n[{}/{}] Procesando archivo:", index + 1, videos.len());
-        run_extract(&video.display().to_string(), format);
+        println!(
+            "\n[{}/{}] Extrayendo audio de: {}",
+            index + 1,
+            total,
+            video.display()
+        );
+
+        match extractor::extract_audio(video, format) {
+            Ok(output) => {
+                println!("Extraccion completada exitosamente: {}", output.display());
+                ok += 1;
+            }
+            Err(err) => {
+                report_error(&err);
+                failed += 1;
+            }
+        }
     }
 
-    println!(
-        "\nProceso completado. {} archivo(s) procesado(s)",
-        videos.len()
-    );
+    (ok, failed)
 }
 
 fn report_error(err: &ExtractError) {
-    println!("Error: {}", err);
+    eprintln!("Error: {}", err);
 }

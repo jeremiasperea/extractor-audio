@@ -32,7 +32,7 @@ zero tests.
 - [x] T1 refactor: split into `src/lib.rs` + `error.rs` + `format.rs` + `extractor.rs`; `AudioFormat`
       enum; `ExtractError` (thiserror); all fallible fns return `Result`; remove `unwrap`; unit tests
       for pure helpers. Route: delegated (writer trigger: 4+ non-trivial files).
-- [ ] T2 feat: `clap` derive CLI (`extract <videos...> -f`, `batch <dir> -f`), `anyhow` in `main`,
+- [x] T2 feat: `clap` derive CLI (`extract <videos...> -f`, `batch <dir> -f`), `anyhow` in `main`,
       per-file failure summary, non-zero exit on any failure; README usage update.
       Route: delegated (same writer, multi-file).
 - [ ] T3 test: integration tests in `tests/` — end-to-end extraction on an FFmpeg-generated sample
@@ -78,8 +78,57 @@ Verification (from repo root):
 
 Commit: recorded below after commit (see end of file).
 
+### T2 — `feat: clap-based CLI with multi-file extraction`
+- `main.rs` rewritten with `clap` derive: `Cli { command: Command }`, `Command::Extract { videos:
+  Vec<PathBuf> (required, 1+), format: AudioFormat }` and `Command::Batch { directory: PathBuf,
+  format: AudioFormat }`. `-f`/`--format` uses `value_enum` with `default_value = "mp3"`, so an
+  invalid format (`-f xyz`) is rejected by clap with exit code 2 before any file is touched or
+  FFmpeg is invoked (verified manually).
+- Decision: `main() -> std::process::ExitCode` (not `anyhow::Result`) — chosen because there is no
+  single top-level fallible operation to propagate with `?`; the function explicitly aggregates
+  per-file outcomes and picks the exit code itself, which `ExitCode` expresses directly without an
+  `anyhow` dependency.
+- FFmpeg presence (`extractor::ensure_ffmpeg()`) is checked exactly once up front, before any file
+  is processed, per task instructions.
+- Per-file processing (`process_files`) prints `[i/N] Extrayendo audio de: <path>` (N is the total
+  file count, known up front for both `extract` and `batch`) and continues after a per-file
+  failure; a final `Resumen: X exitoso(s), Y fallido(s)` line is always printed. Errors go to
+  stderr via `eprintln!` (previously `println!`, which also fixes errors not being visible when
+  stdout is piped separately from stderr).
+- Decision (no-videos case): `batch` on a directory with zero recognized video files prints
+  "No se encontraron archivos de video en el directorio" and returns `ExitCode::FAILURE` (exit 1).
+  Rationale: matches the acceptance criterion ("no videos were found in batch mode" → treated as a
+  failure condition, consistent with "any failed file → exit code 1"), and gives scripts a
+  reliable non-zero signal that nothing was produced instead of silently exiting 0.
+- Exit codes: 0 only if every requested/found file succeeded; 1 if FFmpeg is missing, the batch
+  directory is invalid/empty, or at least one file failed; clap's own arg-parsing errors (e.g.
+  invalid `-f` value, missing required `<VIDEOS>`) use clap's own exit code (2), which is
+  clap's standard behavior and out of scope to override.
+- README `## Uso` rewritten for the new flag-based syntax (`extract`/`batch` with `-f`), including
+  a multi-file example and a note about the breaking change (format used to be a positional arg).
+  Also corrected two pre-existing inaccuracies noticed while editing the same section: the binary
+  name in "Compilación" (`audio_extractor` → `extractor_audio`, matching `Cargo.toml`'s package
+  name) and the "Notas" claim that output always lands next to the source video (it lands in the
+  current working directory — unchanged behavior, now documented correctly per this feature's
+  explicit Scope/Out).
+
+Verification (from repo root):
+- `cargo fmt`: applied, no functional diff (only formatting).
+- `cargo build`: OK — `Finished \`dev\` profile [unoptimized + debuginfo] target(s) in 0.49s`.
+- `cargo clippy --all-targets -- -D warnings`: OK — no warnings.
+- `cargo test`: OK — `test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out`
+  (unchanged; T2 added no new unit tests, integration/CLI tests are T3's scope).
+- Manual smoke test (not part of `cargo test`, informational only):
+  - `extractor_audio --help` → prints usage, exit 0.
+  - `extractor_audio extract -f xyz nope.mp4` → clap rejects before doing any work, exit 2.
+  - `extractor_audio extract nope.mp4` → prints "El archivo 'nope.mp4' no existe" +
+    "Resumen: 0 exitoso(s), 1 fallido(s)", exit 1.
+  - `extractor_audio batch /nonexistent-dir` → prints "El archivo '/nonexistent-dir' no existe",
+    exit 1.
+
 ## Next step
-T2.
+T3.
 
 ## Commit log
-- T1: _(recorded in the T2 commit, see below)_
+- T1: `faee960` — refactor: split into modules with typed errors
+- T2: recorded in the T3 commit (see below)
